@@ -1,130 +1,79 @@
+use std::collections::{HashSet, HashMap};
 
-use std::collections::{HashMap, HashSet};
+#[derive(Debug)]
+struct ScratchCard {
+    id: i32,
+    // There was really no need to store all the numbers, just the relevant
+    // value would have sufficed. Expected to use in part 2 before it unlocked
+    winning: Vec<i32>,
+    observed: Vec<i32>
+}
 
 
 
-pub fn solve(input: &str) -> usize {
-    let input_matrix: Vec<_> = input.lines().map(|line| line.chars().collect::<Vec<_>>()).collect();
-    let height = input_matrix.len();
-    let width = input_matrix.get(0).expect("There should be at least one line").len();
+impl ScratchCard {
+    pub fn from_str(input: &str) -> Self {
 
-    dbg!(height);
-    dbg!(width);
+        let mut parts = input.split(':');
+        let first_part = parts.next().expect("Could not split the scratchcard");
+        let second_part = parts.next().expect("Could not split the scratchcard");
 
-    let mut num_matrix: Vec<Vec<usize>> = Vec::new();
-    let mut filter_matrix: Vec<Vec<bool>> = Vec::new();
-    for _ in 0..height {
-        let mut row = Vec::new();
-        for _ in 0..width {
-            row.push(false);
+        
+        let game_id: i32 = first_part
+            .split(' ')
+            // Could be more than one space to align items
+            .skip_while(|x| x.is_empty())
+            .last().expect("malformatted string before :")
+            .parse().expect("failed to parse game id");
+
+        let mut number_sets =  second_part.split('|').map(|card_str| parse(card_str));
+
+        ScratchCard{
+            id: game_id,
+            winning: number_sets.nth(0).unwrap(),
+            observed:number_sets.last().unwrap()
         }
-        filter_matrix.push(row);
     }
 
-    let mut idx_to_value_map: HashMap<usize, usize> = HashMap::new();
+    pub fn intersection(&self) -> HashSet<i32> {
+        let set1: HashSet<i32> = HashSet::from_iter(self.winning.clone());
+        let set2 = HashSet::from_iter(self.observed.clone());
 
-    let mut num_id = 1;
-    let mut collected_num_str = String::new();
-    let mut continues_number = false;
+        return set1.intersection(&set2).map(|x| *x).collect();
+    }
 
-    // Construct map and matrix of the numbers in the schematics
-    for r in 0..height {
-        let mut num_row : Vec<usize> = Vec::new();
-        if continues_number {
-            // Add possible ending thing as number
-            let n = collected_num_str.parse().expect("Could not parse number string");
+    pub fn matching_number(&self) -> i32 {
+        self.intersection().len() as i32
+    }
 
-            idx_to_value_map.insert(num_id, n);
+}
 
-            collected_num_str.clear();
-            continues_number = false;
-            num_id += 1;
-        }
+fn parse(input: &str) -> Vec<i32> {
+    input.trim().split(' ').flat_map(|x| x.parse::<i32>()).collect::<Vec<_>>()
+}
 
-        continues_number = false;
-        for c in 0..width {
-            let char = input_matrix[r][c];
 
-            if char.is_digit(10) {
-                
-                continues_number = true;
-                collected_num_str.push(char);
-                num_row.push(num_id);
+pub fn solve(input: &str) -> i32 {
+    let mut counts : HashMap<i32, i32> = HashMap::new();
+    // The original scratch cards
+    for idx in 1..=input.lines().count() {
+        counts.insert(idx as i32, 1);
+    }
 
-            } else if continues_number {
-                let n = collected_num_str.parse().expect("Could not parse number string");
+    input.lines()
+        .map(|line| ScratchCard::from_str(line))
+        .for_each(|card| {
+            let match_num = card.matching_number();
 
-                idx_to_value_map.insert(num_id, n);
-  
-                collected_num_str.clear();
-                continues_number = false;
-                num_id += 1;
-                num_row.push(0);
+            for i in (card.id + 1)..=(card.id + match_num) {
+                let previous_count = *counts.get(&i).unwrap();
+                let current_cards = *counts.get(&card.id).unwrap();
 
-            } else {
-                num_row.push(0);
+                counts.insert(i, previous_count + current_cards);
             }
-        }
-        num_matrix.push(num_row);
-    }
+        });
 
-    // if the input ends in a number
-    if continues_number {
-        // Add possible ending thing as number
-        let n = collected_num_str.parse().expect("Could not parse number string");
+    let result = counts.values().sum();
+    return result;
 
-        idx_to_value_map.insert(num_id, n);
-    }
-
-
-
-    // This is where 2 starts to differ
-
-    let mut cum_product = 0;
-
-    // Construct matrix of positions with characters
-    let mut indices: HashSet<usize> = HashSet::new();
-    for r in 0..height {
-        for c in 0..width {
-            let char = input_matrix[r][c];
-
-            match char {
-                '*' => {
-                    indices.clear();
-
-                   
-                    for dy in -1..=1 {
-                        let row: isize = r as isize + dy;
-                    
-                        if row < 0 || row > (height as isize) - 1 {
-                            continue;
-                        }
-
-                        for dx in -1..=1 {
-                            let col: isize = c as isize + dx;
-                            if col < 0 || col > (width as isize) - 1 {
-                                continue;
-                            }
-                            
-                            if num_matrix[row as usize][col as usize] > 0 {
-                                indices.insert(num_matrix[row as usize][col as usize]);
-                            }
-
-                        }
-                        }
-
-                        cum_product += match indices.len() {
-                            2 => indices.iter().flat_map(|id| idx_to_value_map.get(id)).product(),
-                            _ => 0
-                        };
-                    },
-                _ => ()
-            };
-            
-            
-
-        }
-    }
-
-    return cum_product;
 }
