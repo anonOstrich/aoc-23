@@ -1,113 +1,47 @@
-use core::fmt;
-use std::{ str::{FromStr}, fmt::{Error}};
 
+// For a given T = time_limit we can express the result as a function of charging  time x (0..=T):
+// movement(t) = 0*x + (T-x) * x.
+// Then we're looking for interger solutions to the inequality movement(t) > T
+// by the power of Math we observe that the possible solutions are found between the two zero points of the parabola
+// so we just need to solve the equality movement(t) - T = 0 and we know how many solutions there are
+fn extreme_solutions(time_limit: &i64, record: &i64) -> (f64, f64) {
+    let a = -1 as f64;
+    let b = *time_limit as f64;
+    let c = -1.0 *  (*record as f64);
 
-#[cfg(windows)]
-static LINE_ENDING: &str = "\r\n";
-#[cfg(not(windows))]
-static LINE_ENDING: &str = "\n";
+    let mut sol1 = -b + f64::sqrt(b*b - 4.0 * a* c);
+    sol1 /= 2.0 * a;
 
-struct RangeMapping {
-    source: i64,
-    target: i64,
-    range: i64
+    let mut sol2 = -b - f64::sqrt(b*b - 4.0 * a* c);
+    sol2 /= 2.0 * a;
+
+    return (sol1, sol2);
 }
 
-impl RangeMapping {
-    fn map(&self, input: i64) -> Option<i64> {
+fn  is_integer(x: &f64) -> bool {
+    x.fract() == 0.00
+}
 
-        let delta = input - self.source;
-        match delta {
-            x if x >= self.range => None,
-            x if x >= 0 => Some(self.target + delta),
-            _ => None
-        }
+fn count_solutions((min, max): (f64, f64)) -> i64 {
+    let mut narrowing = 0;
+    if is_integer(&min) {
+        narrowing += 1;
     }
-}
-
-impl FromStr for RangeMapping {
-    type Err = Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let numbers: Vec<i64> = s.split(' ')
-        .map(|x| x.parse().expect("Failed to parse mapping data as number")).collect();
-        if numbers.len() != 3 {
-            //...don't really understand error types well yet
-            return Err(fmt::Error);
-        }
-
-        Ok(RangeMapping {
-            target: numbers[0],
-            source: numbers[1],
-            range: numbers[2]
-        })
+    if is_integer(&max) {
+        narrowing += 1;
     }
+    let res = (max.floor() + 1.00) - min.ceil();
+    return res as i64 - narrowing;
 }
-
-enum Mapping {
-    RangeMapping(RangeMapping),
-    DefaultMapping
-}
-
-
-impl Mapping {
-    fn map(&self, input: i64) -> Option<i64> {
-        match self {
-            Self::RangeMapping(m) => m.map(input),
-            Self::DefaultMapping => Some(input)
-        }
-    }
-}
-
-
-struct Converter {
-    mappings: Vec<Mapping>
-}
-
-impl Converter {
-    fn from(lines: &str) -> Self {
-        let mut mappings: Vec<Mapping> = lines.lines()
-            .map(|line| line.parse().expect("Failed to parse a number line"))
-            .map(|x| Mapping::RangeMapping(x))
-            .collect();
-
-        mappings.push(Mapping::DefaultMapping);
-        Converter{ mappings: mappings }
-    }
-
-    fn find_output(&self, input: i64) -> i64 {
-        let mut something: i64 = input;
-
-        for m in &self.mappings {
-            if let Some(n) = m.map(something) {
-                return n;
-            }
-        }
-        return input;
-    }
-}
-
 
 pub fn solve(input: &str) -> i64 {
-    let separator = format!("{}{}", LINE_ENDING, LINE_ENDING);
-    let another_separator = format!(":{}", LINE_ENDING);
+    let times: Vec<i64> = input.lines().next().unwrap().split(':').last().unwrap().split_whitespace().map(|x| x.parse().unwrap()).collect();
+    let distances: Vec<i64> = input.lines().last().unwrap().split(':').last().unwrap().split_whitespace().map(|x| x.parse().unwrap()).collect();
 
-    let mut  mappings = input.split(separator.as_str());
-    let first_line = mappings.next().expect("Could not read the first (seeds) line");
+    let solutions: Vec<_> = times.iter().zip(distances.iter()).map(|(t, d)| extreme_solutions(t, d)).collect();
 
-    let seeds: Vec<i64> = first_line.split(':').last().expect("First row is malformed").trim().split(' ')
-    .map(|x| x.parse().expect("Could not parse seed number")).collect();
-
-    let converters: Vec<_> = mappings.map(|mapping_data| {
-        let something = mapping_data.split(another_separator.as_str()).last().expect("Failed to parse mapping entry");
-        return Converter::from(something);
-    }).collect();
+    let nof_solutions: Vec<_> = solutions.iter().map(|x| count_solutions(*x)).collect();
 
 
-   let positions: Vec<_> =  seeds.iter().map(|seed| converters.iter().fold(*seed, |acc: i64, el: &Converter|{
-        let next = el.find_output(acc);
-        return next;
-   } )).collect();
-    
-    return *positions.iter().min().expect("Something went wrong -- no positions to choose from");
+    return nof_solutions.iter().product();
 }
