@@ -1,56 +1,113 @@
-use std::collections::HashSet;
+use core::fmt;
+use std::{ str::{FromStr}, fmt::{Error}};
 
-#[derive(Debug)]
-struct ScratchCard {
-    winning: Vec<i32>,
-    observed: Vec<i32>
+
+#[cfg(windows)]
+static LINE_ENDING: &str = "\r\n";
+#[cfg(not(windows))]
+static LINE_ENDING: &str = "\n";
+
+struct RangeMapping {
+    source: i64,
+    target: i64,
+    range: i64
 }
 
-impl ScratchCard {
-    pub fn from_strs(winning: &str, observed: &str) -> Self {
-        ScratchCard{
-            winning: parse(winning),
-            observed: parse(observed)
+impl RangeMapping {
+    fn map(&self, input: i64) -> Option<i64> {
+
+        let delta = input - self.source;
+        match delta {
+            x if x >= self.range => None,
+            x if x >= 0 => Some(self.target + delta),
+            _ => None
         }
     }
+}
 
-    pub fn intersection(&self) -> HashSet<i32> {
-        let set1: HashSet<i32> = HashSet::from_iter(self.winning.clone());
-        let set2 = HashSet::from_iter(self.observed.clone());
+impl FromStr for RangeMapping {
+    type Err = Error;
 
-        return set1.intersection(&set2).map(|x| *x).collect();
-    }
-
-
-    // For task 1
-    pub fn score(&self) -> i32 {
-        let intersection_size = self.intersection().len();
-
-        match intersection_size {
-            0 => 0,
-            n => (2 as i32).pow((n - 1) as u32)
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let numbers: Vec<i64> = s.split(' ')
+        .map(|x| x.parse().expect("Failed to parse mapping data as number")).collect();
+        if numbers.len() != 3 {
+            //...don't really understand error types well yet
+            return Err(fmt::Error);
         }
-    }
 
-}
-
-fn parse(input: &str) -> Vec<i32> {
-    input.trim().split(' ').flat_map(|x| x.parse::<i32>()).collect::<Vec<_>>()
-}
-
-
-pub fn solve(input: &str) -> i32 {
-    input.lines()
-        .filter_map(|line| line.split(':').last())
-        .map(|line|{
-            let parts = line.split('|');
-            return parts.collect::<Vec<_>>();
+        Ok(RangeMapping {
+            target: numbers[0],
+            source: numbers[1],
+            range: numbers[2]
         })
-        .map(|card_strs| ScratchCard::from_strs(
-            card_strs.get(0).expect("Cannot extract cards"),
-            card_strs.get(1).expect("Cannot extract cards")
-        ))
-        .map(|x|x.score())
-        .sum()
+    }
+}
 
+enum Mapping {
+    RangeMapping(RangeMapping),
+    DefaultMapping
+}
+
+
+impl Mapping {
+    fn map(&self, input: i64) -> Option<i64> {
+        match self {
+            Self::RangeMapping(m) => m.map(input),
+            Self::DefaultMapping => Some(input)
+        }
+    }
+}
+
+
+struct Converter {
+    mappings: Vec<Mapping>
+}
+
+impl Converter {
+    fn from(lines: &str) -> Self {
+        let mut mappings: Vec<Mapping> = lines.lines()
+            .map(|line| line.parse().expect("Failed to parse a number line"))
+            .map(|x| Mapping::RangeMapping(x))
+            .collect();
+
+        mappings.push(Mapping::DefaultMapping);
+        Converter{ mappings: mappings }
+    }
+
+    fn find_output(&self, input: i64) -> i64 {
+        let mut something: i64 = input;
+
+        for m in &self.mappings {
+            if let Some(n) = m.map(something) {
+                return n;
+            }
+        }
+        return input;
+    }
+}
+
+
+pub fn solve(input: &str) -> i64 {
+    let separator = format!("{}{}", LINE_ENDING, LINE_ENDING);
+    let another_separator = format!(":{}", LINE_ENDING);
+
+    let mut  mappings = input.split(separator.as_str());
+    let first_line = mappings.next().expect("Could not read the first (seeds) line");
+
+    let seeds: Vec<i64> = first_line.split(':').last().expect("First row is malformed").trim().split(' ')
+    .map(|x| x.parse().expect("Could not parse seed number")).collect();
+
+    let converters: Vec<_> = mappings.map(|mapping_data| {
+        let something = mapping_data.split(another_separator.as_str()).last().expect("Failed to parse mapping entry");
+        return Converter::from(something);
+    }).collect();
+
+
+   let positions: Vec<_> =  seeds.iter().map(|seed| converters.iter().fold(*seed, |acc: i64, el: &Converter|{
+        let next = el.find_output(acc);
+        return next;
+   } )).collect();
+    
+    return *positions.iter().min().expect("Something went wrong -- no positions to choose from");
 }
