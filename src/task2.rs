@@ -1,159 +1,177 @@
-use std::{collections::HashMap, cmp::Ordering};
+use core::panic;
+use std::{collections::{HashMap, HashSet}, cmp::Ordering};
 
+fn parse_line(line: &str) -> (String, (String, String)) {
+    let mut iterator = line.split('=').map(|x| x .trim());
+    let key = iterator.next().expect("Malformed line input");
 
-#[derive(Debug, PartialEq, Eq, Ord)]
+    let temp = iterator.next().expect("Malformed line input").chars().skip(1).take_while(|c| *c != ')')
+    .filter(|c| *c != ',').collect::<String>();
+    let targets: Vec<_> =  temp.split(' ').collect();
 
-struct Hand {
-    hand_type: HandType,
-    cards: Vec<u8>,
-    bet: u32
+    return (key.to_string(), (targets[0].to_string(), targets[1].to_string()));
 }
 
-// Doesn't need modifications for jokers
-impl PartialOrd for Hand {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        let type_diff: i16 = (self.hand_type as i16) - (other.hand_type as i16);
-        if type_diff > 0 {
-            return Some(Ordering::Greater);
-        } else if type_diff < 0 {
-            return Some(Ordering::Less);
+/*
+    Let's find the cycle lengths for all the inputs.
+    (S, I) where state is some state and I is a character in the input
+    |S| = 766, |I| = 281
+
+    So there are 766 * 281 = 215246 different total information states. If we ever end up in a same TI state, we've found a cycle. So we need to check max 215246 transitions to find information about the whole cycle of a starting state.
+
+    We do this for each starting state. Then try to find an index, where all the states are in a final state.
+
+
+    We could form: 
+    - a map that tells how many steps until a final state from each state we encounter. 
+    - find the longest cycle. Extend other cycles to match the length. Find the final state set
+    - do the above but more mathematically... 
+
+    P.S. The real input didn't need quite as general treatment.
+*/
+
+#[derive(Debug)]
+struct CycleInfo {
+    start_state: String,
+    // Although with the longer input there is only one index that is the finish
+    finishing_indices: Vec<usize>,
+    cycle_start_idx: usize,
+    // Elements belonging in the cycle (so 1->2->3->1 has length 3)
+    cycle_length: usize
+}
+
+#[derive(Eq, PartialEq, Hash, Debug,Clone)]
+struct State {
+    id: String,
+}
+
+fn extract_cycle_info(init_state: &str, directions: &str, transitions: &HashMap<String, (String, String)>) -> CycleInfo{
+
+
+    let mut visited_ti_states: HashMap<(State, usize), usize> = HashMap::new();
+    let mut simple_visited_state: HashSet<State> = HashSet::new();
+    let mut finishing_states: Vec<usize> = vec![];
+
+
+    let char_array: Vec<char> = directions.chars().collect();
+    let mut ti_state: (State, usize) = (State{id: init_state.to_string()}, 0);
+    let mut global_idx = 0;
+
+    let mut saw_final_state = false;
+    let mut final_count = 0;
+
+    // Will end eventually if the problem is solvable
+    for (idx, direction) in char_array.iter().enumerate().cycle() {
+
+
+
+        ti_state.1 = idx;
+
+        if (&ti_state.0).id.ends_with('Z') {
+            finishing_states.push(global_idx);
         }
 
-        for (c1, c2) in self.cards.iter().zip(other.cards.iter()) {
-            if c1 < c2 {
-                return Some(Ordering::Less);
-            }
-            if c1 > c2 {
-                return Some(Ordering::Greater);
-            }
+        if visited_ti_states.contains_key(&ti_state) {
+            let cycle_len = global_idx - visited_ti_states.get(&ti_state).unwrap();
+            return CycleInfo {
+                cycle_start_idx:  idx, 
+                cycle_length: cycle_len,
+                finishing_indices: finishing_states,
+                start_state: init_state.to_string()
+            };
+        } 
+        visited_ti_states.insert(ti_state.clone(), global_idx);
+        simple_visited_state.insert(ti_state.clone().0);
+
+
+        let options = transitions.get(&ti_state.0.id).unwrap();
+        let next_state = match direction {
+            'L' => State{id: options.0.to_string()},
+            'R' => State{id: options.1.to_string()},
+            _ => panic!("Impossible")
+        };
+
+        ti_state.0 = next_state; 
+        global_idx += 1;
+    }
+
+    panic!("impossible");
+}
+
+
+
+#[derive(Debug)]
+struct Equation {
+    b: usize,
+    k: usize
+}
+
+impl Equation {
+    fn result(&self, input: usize) -> usize {
+        self.b + (self.k * input)
+    }
+
+    fn max_below(&self, limit: usize, earlier_limit: usize) -> (usize, usize) {
+        let mut coeff = earlier_limit;
+        let mut res = self.result(coeff);
+
+        while res <= limit {
+            coeff += 1;
+            res = self.result(coeff);
         }
-        return Some(Ordering::Equal);
+        return (self.result(coeff - 1), coeff - 1)
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Copy, Eq, PartialOrd, Ord)]
-#[repr(u8)]
+fn easy_solve(paths: &mut Vec<CycleInfo>) -> usize{
+    // Make use of the fact that there are is only one final state per track...
+    assert!(paths.iter().all(|x| x.finishing_indices.len() == 1));
 
-enum HandType {
-    FiveOfAKind = 6,
-    FourOfAKind = 5,
-    FullHouse = 4,
-    ThreeOfAKind = 3,
-    TwoPair = 2,
-    OnePair = 1,
-    HighCard = 0
-}
+    paths.sort_by(|e1, e2| match (e1.cycle_length as isize - e1.cycle_start_idx as isize - e2.cycle_length as isize + e2.cycle_start_idx as isize) {
+        x if x > 0 => Ordering::Less,
+        x if x < 0 => Ordering::Greater,
+        _ => Ordering::Equal
+    });
 
-impl HandType {
-    fn from_counts(counts: &Vec<u8>) -> Self {
-        if counts.contains(&5){     
-            return  HandType::FiveOfAKind;
-           } else if counts.contains(&4) {
-               return HandType::FourOfAKind;
-           } else if counts.contains(&3) && counts.contains(&2) {
-               return HandType::FullHouse;
-           } else if counts.contains(&3) {
-               return  HandType::ThreeOfAKind;
-           } else if counts.iter().filter(|x| **x == 2).count() == 2 {
-               return  HandType::TwoPair;
-           } else if counts.contains(&2) {
-               return HandType::OnePair;
-           } else {
-               return HandType::HighCard;
-           };
+
+    let equations: Vec<_> = paths.iter().map(|info| Equation{b: info.finishing_indices[0], k: info.cycle_start_idx + info.cycle_length - info.finishing_indices[0] + info.finishing_indices[0] - info.cycle_start_idx // info.cycle_length
+     }).collect();
+
+
+    let first_el = &equations[0];
+
+    let mut coeff = 
+    0;
+    let mut floors: Vec<usize> = equations.iter().skip(1).map(|_| 0).collect();
+
+    while true {
+        let path_len = first_el.result(coeff);
+
+        let max_lengths_below: Vec<_> = equations.iter().skip(1).enumerate()
+            .map(|(i, x)| x.max_below(path_len, floors[i]))
+            .collect();
+
+        if max_lengths_below.iter().all(|(res, _)| *res == path_len) {
+            return path_len;
+        }         
+        max_lengths_below.iter().enumerate().for_each(|(i, (_, cff))| floors[i] = *cff);
+        coeff += 1;
     }
+
+    panic!("Impossible");
 }
 
-fn card_val_to_number(c: &char) -> u8 {
-    match c {
-        'A' => 14,
-        'K' => 13,
-        'Q' => 12,
-        'T' => 10,
-        '2'..='9' => c.to_digit(10).unwrap() as u8,
-        'J' => 1,
-        _ => panic!("Unknown card value")
-    }
-}
+pub fn solve(input: &str) -> usize{
+    let mut iterator = input.lines();
+    let navigation_instructions = iterator.next().expect("Input does not have first line");
 
-impl Hand {
-
-    fn from(hand_str: &str) -> Self{
-        let mut hand_iter = hand_str.split(' ');
-        let cards_str = hand_iter.next().expect("Could not read the hand from input");
-        let bet_str = hand_iter.next().expect("Could not read the bet amount from input");
-
-        let cards: Vec<_> = cards_str.chars().map(|c| card_val_to_number(&c)).collect();
-        let bet = bet_str.parse().expect("Could not parse");
-
-
-        let mut map: HashMap<u8, u8> = HashMap::new();
-
-        for card in &cards {
-            if card == &1 {
-                continue;
-            }
-
-            if !map.contains_key(card) {
-                map.insert(*card, 0);
-            }
-            map.insert(*card, 
-                *map.get(&card).unwrap() + 1
-            );
-        }
-
-        let counts: Vec<u8> = map.iter()
-        // Don't consider jokers at this point -- what is the hand like with only the remaining cards?
-        .filter(|(k, _)| *k != &1).map(|(_, v)| v)
-        .map(|x| *x).collect();
-
-        let mut hand_type = HandType::from_counts(&counts);
-
-        // Best strategy for using jokers is always: 
-        // Convert them all to the value that is most common
-        // If many values could reach the same number of cards,
-        // choose the one with the greatest value
-        if cards.contains(&1) {
-            
-            let nof_jokers: usize = cards.iter().filter(|c| **c == 1).count();
-            let mut replacement: u8 = 0;
-            let mut max_count = 0;
-
-            for (k, v) in &map {
-                if v > &max_count || (v == &max_count && k > &replacement) {
-                    max_count = *v;
-                    replacement = *k;
-                }
-            }
-            
-
-
-            let mut new_map = map.clone();
-            new_map.insert(replacement, max_count + nof_jokers as u8);
-            let new_values: Vec<u8> = new_map.values().map(|x| *x).collect();
-            hand_type = HandType::from_counts(&new_values);
-        }
-
-
-        
-        
-        return Hand { hand_type: hand_type, cards: cards, bet: bet }
-
-
-    }
-}
+    let state_mappings: HashMap<String, (String, String)> = iterator.skip(1).map(|line| parse_line(line)).collect(); 
 
 
 
+    let current_states: HashSet<String> = input.lines().skip(2).map(|x| x[..3].to_string()).filter(|x| x.ends_with('A')).collect();
 
-
-pub fn solve(input: &str) -> i64 {
-    let mut hands: Vec<_> = input.lines().map(|l| Hand::from(l)).collect();
-    hands.sort();
-    
-
-    let result: usize = hands.iter().enumerate().map(|(idx, hand)| (idx + 1) * (hand.bet as usize))
-    .sum();
-
-    return result as i64;
+    let mut cycles: Vec<_> = current_states.iter()
+        .map(|state| extract_cycle_info(state, navigation_instructions, &state_mappings)).collect();
+    return easy_solve(&mut cycles);
 }
