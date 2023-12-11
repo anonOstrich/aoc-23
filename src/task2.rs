@@ -1,61 +1,75 @@
-use std::{str::FromStr, fmt::Error};
+static EXPANSION_COEFF: usize = 1000000;
+
+pub fn solve(input: &str) -> usize {
+
+    // Parse input
+    let galaxies: Vec<Vec<bool>> = input.lines().map(|line| line.chars().map(|c| match c {
+        '.' => false,
+        '#' => true,
+        _ => panic!("Not possible")
+    }).collect()).collect();
 
 
-#[derive(Debug)]
-struct Sequence {
-    numbers: Vec<Vec<isize>>
-}
-
-impl FromStr for Sequence {
-    type Err = Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let nums: Vec<isize> = s.split_whitespace().map(|x| x.parse().expect("Could not parse a value as number"))
-            // The only addition to task 2
-            .rev()
-            .collect();
-        return Ok(Sequence {numbers: vec![nums]});
+    let mut expanded_rows: Vec<usize> = vec![];
+    for r in 0..galaxies.len() {
+        if galaxies[r].iter().all(|spot| !spot) {
+            expanded_rows.push(r);
+        }
     }
-}
 
-impl Sequence {
-    fn solve_next(&mut self) -> isize {
-        let mut idx = 0;
-
-        while true {
-            let prev = &self.numbers[idx];
-            let next: Vec<_> = prev.iter().zip(
-                    prev.iter().skip(1)
-                )
-                .map(|(prev, next)| next - prev).collect();
-
-            idx += 1;
-
-            if next.iter().all(|x| *x == 0) {
-                self.numbers.push(next);
+    let mut expanded_columns: Vec<usize> = vec![];
+    
+    for c in 0..galaxies[0].len() {
+        let mut all_empty = true;
+        for r in 0..galaxies.len() {
+            if galaxies[r][c] {
+                all_empty = false;
                 break;
             }
-            self.numbers.push(next);
-
         }
 
-
-        let mut next_value = 0;
-
-        while idx > 0 {
-            let shallower = &self.numbers[idx - 1];
-
-            next_value += shallower.last().unwrap();
-            idx -= 1;
+        if all_empty {
+            expanded_columns.push(c);
         }
-
-       return next_value;
+        
     }
-}
 
-pub fn solve(input: &str) -> isize {
-    let mut sequences: Vec<Sequence> = input.lines().map(|x| x.parse().unwrap()).collect();
-    let predictions: isize = sequences.iter_mut().map(|s| s.solve_next()).sum();
 
-    predictions
+
+    // Find shortest pairwise distances
+
+    let mut galaxy_positions: Vec<(usize, usize)> = vec![];
+    for r in 0..galaxies.len() {
+        for c in 0..galaxies[0].len() {
+            if galaxies[r][c] {
+                galaxy_positions.push((r, c));
+            }
+        }
+    }
+
+    let answer = galaxy_positions.iter().enumerate()
+    .flat_map(|(idx, pos)|
+        galaxy_positions.iter().skip(idx  +1)
+        .map(|pos2| {
+            let basic_distance = (pos.0 as isize - pos2.0 as isize).abs() as usize + (pos.1 as isize - pos2.1 as isize).abs() as usize;
+
+            let mut subtraction = 0;
+
+            let row_min = pos.0.min(pos2.0);
+            let row_max = pos.0.max(pos2.0);
+
+            let galaxies_in_between_rows = expanded_rows.iter().filter(|row| **row < row_max && **row > row_min).count();
+
+            subtraction += galaxies_in_between_rows;
+
+            let cols_min = pos.1.min(pos2.1);
+            let cols_max = pos.1.max(pos2.1);
+
+            let galaxies_in_between_cols = expanded_columns.iter().filter(|col| **col < cols_max && **col > cols_min).count();
+            subtraction += galaxies_in_between_cols;
+
+            return basic_distance + (galaxies_in_between_rows + galaxies_in_between_cols) * EXPANSION_COEFF - subtraction;
+        })
+    ).sum();
+    answer
 }
